@@ -2,7 +2,9 @@
 """
 Fetch IP ranges from upstream sources and generate combined.json.
 
-Data source: https://github.com/lord-alfred/ipranges
+Data sources:
+- https://github.com/lord-alfred/ipranges (for services with upstream folders)
+- BGPView API (for ASN-based lookups)
 """
 
 import json
@@ -11,25 +13,36 @@ import datetime
 import sys
 
 UPSTREAM_BASE = "https://raw.githubusercontent.com/lord-alfred/ipranges/main"
+RIPE_STAT_API = "https://stat.ripe.net/data/announced-prefixes/data.json"
 
-# Service definitions: (id, display_name, sf_symbol_icon, upstream_folder)
-SERVICES = [
-    ("google",       "Google",        "g.circle.fill",           "google"),
-    ("meta",         "Meta",          "person.2.fill",           "facebook"),
-    ("amazon",       "Amazon AWS",    "server.rack",             "amazon"),
-    ("microsoft",    "Microsoft",     "desktopcomputer",         "microsoft"),
-    ("apple",        "Apple",         "apple.logo",              "apple-proxy"),
-    ("cloudflare",   "Cloudflare",    "shield.fill",             "cloudflare"),
-    ("github",       "GitHub",        "chevron.left.forwardslash.chevron.right", "github"),
-    ("oracle",       "Oracle Cloud",  "cloud.fill",              "oracle"),
-    ("digitalocean", "DigitalOcean",  "drop.fill",               "digitalocean"),
-    ("telegram",     "Telegram",      "paperplane.fill",         "telegram"),
-    ("twitter",      "Twitter / X",   "at",                      "twitter"),
-    ("openai",       "OpenAI",        "cpu",                     "openai"),
-    ("linode",       "Linode",        "network",                 "linode"),
-    ("vultr",        "Vultr",         "externaldrive.connected.to.line.below.fill", "vultr"),
-    ("protonvpn",    "ProtonVPN",     "lock.shield.fill",        "protonvpn"),
-    ("perplexity",   "Perplexity",    "magnifyingglass",         "perplexity"),
+# Service definitions using upstream ipranges repo: (id, display_name, sf_symbol_icon, upstream_folder)
+UPSTREAM_SERVICES = [
+    ("google",    "Google",       "g.circle.fill",      "google"),
+    ("meta",      "Meta",         "person.2.fill",      "facebook"),
+    ("apple",     "Apple",        "apple.logo",          "apple-proxy"),
+    ("github",    "GitHub",       "chevron.left.forwardslash.chevron.right", "github"),
+    ("telegram",  "Telegram",     "paperplane.fill",    "telegram"),
+    ("twitter",   "Twitter / X", "at",                  "twitter"),
+    ("openai",    "OpenAI",       "cpu",                "openai"),
+]
+
+# Service definitions using ASN lookups: (id, display_name, sf_symbol_icon, [asn_numbers])
+ASN_SERVICES = [
+    ("netflix",     "Netflix",      "play.tv.fill",       [2906]),
+    ("spotify",     "Spotify",      "music.note",         [35994, 202018, 394006]),
+    ("tiktok",      "TikTok",       "music.note.tv",      [138699, 396986]),
+    ("snapchat",    "Snapchat",     "camera.fill",        [13414]),
+    ("discord",     "Discord",      "bubble.left.and.bubble.right.fill", [49544]),
+    ("zoom",        "Zoom",         "video.fill",         [30103]),
+    ("line",        "LINE",         "message.fill",       [38631]),
+    ("steam",       "Steam",        "gamecontroller.fill", [32590]),
+    ("pinterest",   "Pinterest",    "pin.fill",           [54113]),
+    ("linkedin",    "LinkedIn",     "briefcase.fill",     [14413]),
+    ("reddit",      "Reddit",       "text.bubble.fill",   [394536, 13238]),
+    ("whatsapp",    "WhatsApp",     "phone.fill",         [63293]),
+    ("disneyplus",  "Disney+",      "sparkles.tv.fill",   [11251, 7754]),
+    ("hulu",        "Hulu",         "play.tv",            [23286]),
+    ("signal",      "Signal",       "lock.fill",          [396507]),
 ]
 
 
@@ -45,18 +58,65 @@ def fetch_text(url: str) -> list[str]:
         return []
 
 
-def fetch_service(folder: str) -> list[str]:
-    """Fetch merged IPv4 and IPv6 ranges for a service."""
+def fetch_upstream_service(folder: str) -> list[str]:
+    """Fetch merged IPv4 and IPv6 ranges for an upstream service."""
     ipv4 = fetch_text(f"{UPSTREAM_BASE}/{folder}/ipv4_merged.txt")
     ipv6 = fetch_text(f"{UPSTREAM_BASE}/{folder}/ipv6_merged.txt")
     return ipv4 + ipv6
 
 
+def fetch_asn_prefixes(asn: int) -> list[str]:
+    """Fetch IP prefixes for a given ASN from RIPE STAT API."""
+    url = f"{RIPE_STAT_API}?resource=AS{asn}&sourceapp=service-ip-ranges"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "service-ip-ranges/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            prefixes = []
+            for entry in data.get("data", {}).get("prefixes", []):
+                prefix = entry.get("prefix")
+                if prefix:
+                    prefixes.append(prefix)
+            return prefixes
+    except Exception as e:
+        print(f"  Warning: failed to fetch ASN {asn}: {e}", file=sys.stderr)
+        return []
+
+
+def fetch_asn_service(asns: list[int]) -> list[str]:
+    """Fetch and deduplicate IP ranges for a list of ASNs."""
+    all_prefixes = []
+    seen = set()
+    for asn in asns:
+        for prefix in fetch_asn_prefixes(asn):
+            if prefix not in seen:
+                seen.add(prefix)
+                all_prefixes.append(prefix)
+    return all_prefixes
+
+
 def main():
     services = []
-    for service_id, name, icon, folder in SERVICES:
+
+    # Fetch upstream services
+    for service_id, name, icon, folder in UPSTREAM_SERVICES:
         print(f"Fetching {name} ({folder})...", file=sys.stderr)
-        ip_ranges = fetch_service(folder)
+        ip_ranges = fetch_upstream_service(folder)
+        if not ip_ranges:
+            print(f"  Skipping {name}: no IP ranges found", file=sys.stderr)
+            continue
+        services.append({
+            "id": service_id,
+            "name": name,
+            "icon": icon,
+            "ipRanges": ip_ranges,
+        })
+        print(f"  {name}: {len(ip_ranges)} ranges", file=sys.stderr)
+
+    # Fetch ASN-based services
+    for service_id, name, icon, asns in ASN_SERVICES:
+        print(f"Fetching {name} (ASN {', '.join(str(a) for a in asns)})...", file=sys.stderr)
+        ip_ranges = fetch_asn_service(asns)
         if not ip_ranges:
             print(f"  Skipping {name}: no IP ranges found", file=sys.stderr)
             continue
