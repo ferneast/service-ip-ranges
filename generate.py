@@ -43,6 +43,7 @@ ASN_SERVICES = [
     ("disneyplus",  "Disney+",      "sparkles.tv.fill",   [11251, 7754]),
     ("hulu",        "Hulu",         "play.tv",            [23286]),
     ("signal",      "Signal",       "lock.fill",          [396507]),
+    ("youtube",     "YouTube",      "play.rectangle.fill", [36040, 43515]),
 ]
 
 # Service definitions with static IP ranges: (id, display_name, sf_symbol_icon, [ip_ranges])
