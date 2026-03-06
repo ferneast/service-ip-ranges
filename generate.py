@@ -45,6 +45,15 @@ ASN_SERVICES = [
     ("signal",      "Signal",       "lock.fill",          [396507]),
 ]
 
+# Service definitions with static IP ranges: (id, display_name, sf_symbol_icon, [ip_ranges])
+STATIC_SERVICES = [
+    ("claude", "Claude", "brain.fill", [
+        "160.79.104.0/23",
+        "160.79.104.0/21",
+        "2607:6bc0::/48",
+    ]),
+]
+
 
 def fetch_text(url: str) -> list[str]:
     """Fetch a text file and return non-empty lines."""
@@ -120,6 +129,17 @@ def main():
         if not ip_ranges:
             print(f"  Skipping {name}: no IP ranges found", file=sys.stderr)
             continue
+        services.append({
+            "id": service_id,
+            "name": name,
+            "icon": icon,
+            "ipRanges": ip_ranges,
+        })
+        print(f"  {name}: {len(ip_ranges)} ranges", file=sys.stderr)
+
+    # Static services
+    for service_id, name, icon, ip_ranges in STATIC_SERVICES:
+        print(f"Adding {name} (static)...", file=sys.stderr)
         services.append({
             "id": service_id,
             "name": name,
