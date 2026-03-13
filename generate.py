@@ -14,13 +14,12 @@ import sys
 
 UPSTREAM_BASE = "https://raw.githubusercontent.com/lord-alfred/ipranges/main"
 RIPE_STAT_API = "https://stat.ripe.net/data/announced-prefixes/data.json"
+GITHUB_META_API = "https://api.github.com/meta"
 
 # Service definitions using upstream ipranges repo: (id, display_name, sf_symbol_icon, upstream_folder)
 UPSTREAM_SERVICES = [
     ("google",    "Google",       "g.circle.fill",      "google"),
     ("meta",      "Meta",         "person.2.fill",      "facebook"),
-    ("apple",     "Apple",        "apple.logo",          "apple-proxy"),
-    ("github",    "GitHub",       "chevron.left.forwardslash.chevron.right", "github"),
     ("telegram",  "Telegram",     "paperplane.fill",    "telegram"),
     ("twitter",   "Twitter / X", "at",                  "twitter"),
     ("openai",    "OpenAI",       "cpu",                "openai"),
@@ -28,6 +27,7 @@ UPSTREAM_SERVICES = [
 
 # Service definitions using ASN lookups: (id, display_name, sf_symbol_icon, [asn_numbers])
 ASN_SERVICES = [
+    ("apple",       "Apple",        "apple.logo",         [714, 6185]),
     ("netflix",     "Netflix",      "play.tv.fill",       [2906]),
     ("spotify",     "Spotify",      "music.note",         [35994, 202018, 394006]),
     ("tiktok",      "TikTok",       "music.note.tv",      [138699, 396986]),
@@ -36,7 +36,6 @@ ASN_SERVICES = [
     ("zoom",        "Zoom",         "video.fill",         [30103]),
     ("line",        "LINE",         "message.fill",       [38631]),
     ("steam",       "Steam",        "gamecontroller.fill", [32590]),
-    ("pinterest",   "Pinterest",    "pin.fill",           [54113]),
     ("linkedin",    "LinkedIn",     "briefcase.fill",     [14413]),
     ("reddit",      "Reddit",       "text.bubble.fill",   [394536, 13238]),
     ("whatsapp",    "WhatsApp",     "phone.fill",         [63293]),
@@ -93,6 +92,27 @@ def fetch_asn_prefixes(asn: int) -> list[str]:
         return []
 
 
+def fetch_github_ranges() -> list[str]:
+    """Fetch IP ranges from GitHub's official meta API."""
+    try:
+        req = urllib.request.Request(GITHUB_META_API, headers={"User-Agent": "service-ip-ranges/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            seen = set()
+            prefixes = []
+            for key in ("hooks", "web", "api", "git", "packages", "pages",
+                        "importer", "actions", "dependabot", "copilot",
+                        "github_enterprise_importer"):
+                for prefix in data.get(key, []):
+                    if prefix not in seen:
+                        seen.add(prefix)
+                        prefixes.append(prefix)
+            return prefixes
+    except Exception as e:
+        print(f"  Warning: failed to fetch GitHub meta API: {e}", file=sys.stderr)
+        return []
+
+
 def fetch_asn_service(asns: list[int]) -> list[str]:
     """Fetch and deduplicate IP ranges for a list of ASNs."""
     all_prefixes = []
@@ -122,6 +142,20 @@ def main():
             "ipRanges": ip_ranges,
         })
         print(f"  {name}: {len(ip_ranges)} ranges", file=sys.stderr)
+
+    # Fetch GitHub from official API
+    print("Fetching GitHub (api.github.com/meta)...", file=sys.stderr)
+    github_ranges = fetch_github_ranges()
+    if github_ranges:
+        services.append({
+            "id": "github",
+            "name": "GitHub",
+            "icon": "chevron.left.forwardslash.chevron.right",
+            "ipRanges": github_ranges,
+        })
+        print(f"  GitHub: {len(github_ranges)} ranges", file=sys.stderr)
+    else:
+        print("  Skipping GitHub: no IP ranges found", file=sys.stderr)
 
     # Fetch ASN-based services
     for service_id, name, icon, asns in ASN_SERVICES:

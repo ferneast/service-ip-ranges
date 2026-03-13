@@ -8,12 +8,13 @@ This project aggregates IP ranges for major internet services into a single `com
 
 ## How It Works
 
-`generate.py` fetches IP ranges from two source types and writes `combined.json`:
+`generate.py` fetches IP ranges from three source types and writes `combined.json`:
 
 1. **Upstream services** (`UPSTREAM_SERVICES`) — pulled from the [lord-alfred/ipranges](https://github.com/lord-alfred/ipranges) GitHub repo (merged IPv4/IPv6 text files)
 2. **ASN-based services** (`ASN_SERVICES`) — looked up via the RIPE Stat API using AS numbers
+3. **Static services** (`STATIC_SERVICES`) — hardcoded IP ranges defined directly in `generate.py`
 
-A GitHub Actions workflow (`.github/workflows/update.yml`) runs `python3 generate.py` daily at 06:00 UTC and auto-commits changes to `combined.json`.
+A GitHub Actions workflow (`.github/workflows/update.yml`) runs `python3 generate.py` daily at 06:00 UTC and auto-commits changes to `combined.json`. It can also be triggered manually via `workflow_dispatch`.
 
 ## Commands
 
@@ -46,5 +47,6 @@ No dependencies beyond Python 3.12+ standard library. No virtual environment nee
 
 - For services covered by lord-alfred/ipranges: add a tuple to `UPSTREAM_SERVICES` in `generate.py`
 - For services identifiable by ASN: add a tuple to `ASN_SERVICES` in `generate.py`
-- Each entry needs: `(id, display_name, sf_symbol_icon, source)` where source is a folder name or list of ASN integers
+- For services with fixed/known IP ranges: add a tuple to `STATIC_SERVICES` in `generate.py`
+- Each entry needs: `(id, display_name, sf_symbol_icon, source)` where source is a folder name, list of ASN integers, or list of CIDR strings
 - The `icon` field uses Apple SF Symbols names (this data is consumed by an iOS app)
