@@ -100,8 +100,9 @@ def fetch_github_ranges() -> list[str]:
             data = json.loads(resp.read().decode("utf-8"))
             seen = set()
             prefixes = []
+            # Note: "actions" excluded — 5000+ Azure runner IPs, not GitHub's own infra
             for key in ("hooks", "web", "api", "git", "packages", "pages",
-                        "importer", "actions", "dependabot", "copilot",
+                        "importer", "dependabot", "copilot",
                         "github_enterprise_importer"):
                 for prefix in data.get(key, []):
                     if prefix not in seen:
