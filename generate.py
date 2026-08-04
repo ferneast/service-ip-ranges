@@ -7,6 +7,7 @@ Data sources:
 - BGPView API (for ASN-based lookups)
 """
 
+import ipaddress
 import json
 import urllib.request
 import datetime
@@ -53,6 +54,31 @@ STATIC_SERVICES = [
         "2607:6bc0::/48",
     ]),
 ]
+
+
+# Blocks a service owns entirely: {service_id: [cidr, ...]}
+# These are added unconditionally and absorb every fetched sub-prefix.
+# Apple owns all of 17.0.0.0/8, so ~1500 announced sub-prefixes collapse into one entry.
+SERVICE_SUPERNETS = {
+    "apple": ["17.0.0.0/8"],
+}
+
+def normalize_ranges(service_id: str, ip_ranges: list[str]) -> list[str]:
+    """Add known supernets, then merge and deduplicate overlapping prefixes."""
+    networks = []
+    unparsed = []
+    for prefix in SERVICE_SUPERNETS.get(service_id, []) + ip_ranges:
+        try:
+            networks.append(ipaddress.ip_network(prefix, strict=False))
+        except ValueError:
+            print(f"  Warning: skipping unparsable prefix {prefix!r}", file=sys.stderr)
+            unparsed.append(prefix)
+
+    merged = []
+    for version in (4, 6):
+        same_version = (n for n in networks if n.version == version)
+        merged.extend(str(n) for n in ipaddress.collapse_addresses(same_version))
+    return merged + unparsed
 
 
 def fetch_text(url: str) -> list[str]:
@@ -183,6 +209,14 @@ def main():
             "ipRanges": ip_ranges,
         })
         print(f"  {name}: {len(ip_ranges)} ranges", file=sys.stderr)
+
+    # Normalize: apply supernets, merge and deduplicate
+    for service in services:
+        before = len(service["ipRanges"])
+        service["ipRanges"] = normalize_ranges(service["id"], service["ipRanges"])
+        after = len(service["ipRanges"])
+        if after != before:
+            print(f"Normalizing {service['name']}: {before} -> {after} ranges", file=sys.stderr)
 
     output = {
         "version": 1,

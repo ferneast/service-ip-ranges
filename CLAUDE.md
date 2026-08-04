@@ -14,6 +14,11 @@ This project aggregates IP ranges for major internet services into a single `com
 2. **ASN-based services** (`ASN_SERVICES`) — looked up via the RIPE Stat API using AS numbers
 3. **Static services** (`STATIC_SERVICES`) — hardcoded IP ranges defined directly in `generate.py`
 
+Before writing the output, every service's ranges pass through `normalize_ranges()`:
+
+- Blocks listed in `SERVICE_SUPERNETS` are added unconditionally (e.g. Apple owns all of `17.0.0.0/8`)
+- Overlapping and adjacent prefixes are merged and deduplicated via `ipaddress.collapse_addresses`
+
 A GitHub Actions workflow (`.github/workflows/update.yml`) runs `python3 generate.py` daily at 06:00 UTC and auto-commits changes to `combined.json`. It can also be triggered manually via `workflow_dispatch`.
 
 ## Commands
