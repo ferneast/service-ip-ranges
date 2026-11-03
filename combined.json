@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-11-02",
+  "lastUpdated": "2026-11-03",
   "services": [
     {
       "id": "google",
@@ -1632,6 +1632,7 @@
       "name": "Disney+",
       "icon": "sparkles.tv.fill",
       "ipRanges": [
+        "8.5.5.0/24",
         "139.104.124.0/23",
         "139.104.126.0/24",
         "139.104.192.0/24",
