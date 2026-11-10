@@ -2,9 +2,18 @@
 """
 Fetch IP ranges from upstream sources and generate combined.json.
 
+SCOPE: inbound ranges only.
+This data answers "which service is this IP?" for traffic a user's device
+originates, so we only collect addresses a service SERVES on -- the ones
+clients connect TO. A vendor's outbound/egress ranges (the source IPs it
+connects out from: webhook delivery, crawlers, agent tool calls) never
+appear in a user's own connection table, so they are deliberately excluded.
+
 Data sources:
 - https://github.com/lord-alfred/ipranges (for services with upstream folders)
-- BGPView API (for ASN-based lookups)
+- RIPE Stat API (for ASN-based lookups; announced prefixes are a service's
+  own routed space, which is what it serves from)
+- api.github.com/meta (ingress keys only)
 """
 
 import ipaddress
@@ -23,7 +32,13 @@ UPSTREAM_SERVICES = [
     ("meta",      "Meta",         "person.2.fill",      "facebook"),
     ("telegram",  "Telegram",     "paperplane.fill",    "telegram"),
     ("twitter",   "Twitter / X", "at",                  "twitter"),
-    ("openai",    "OpenAI",       "cpu",                "openai"),
+    # No "openai" entry on purpose. OpenAI publishes egress ranges only
+    # (https://developers.openai.com/api/docs/guides/ip-addresses -> chatgpt-agents.json,
+    # chatgpt-connectors.json; plus the gptbot/searchbot/chatgpt-user crawler lists),
+    # and api.openai.com / chatgpt.com resolve into Cloudflare AS13335, not OpenAI
+    # space. There is no OpenAI-owned inbound range to list, and listing Cloudflare's
+    # would tag a large share of the web as OpenAI. The lord-alfred "openai" folder is
+    # egress too (and has no ipv6_merged.txt).
 ]
 
 # Service definitions using ASN lookups: (id, display_name, sf_symbol_icon, [asn_numbers])
@@ -48,9 +63,14 @@ ASN_SERVICES = [
 
 # Service definitions with static IP ranges: (id, display_name, sf_symbol_icon, [ip_ranges])
 STATIC_SERVICES = [
+    # https://platform.claude.com/docs/en/api/ip-addresses -- "Inbound IP addresses"
+    # only. The doc's outbound ranges (160.79.104.0/21, 153.61.208.0/20) are
+    # Anthropic's egress for MCP/web-search tool calls and are excluded on purpose;
+    # note 160.79.104.0/21 is a supernet of the inbound /23, so including it would
+    # silently widen this entry 8x.
     ("claude", "Claude", "brain.fill", [
         "160.79.104.0/23",
-        "160.79.104.0/21",
+        "153.61.224.0/22",
         "2607:6bc0::/48",
     ]),
 ]
@@ -126,10 +146,15 @@ def fetch_github_ranges() -> list[str]:
             data = json.loads(resp.read().decode("utf-8"))
             seen = set()
             prefixes = []
-            # Note: "actions" excluded — 5000+ Azure runner IPs, not GitHub's own infra
-            for key in ("hooks", "web", "api", "git", "packages", "pages",
-                        "importer", "dependabot", "copilot",
-                        "github_enterprise_importer"):
+            # Ingress keys only -- the addresses clients connect TO.
+            # Excluded as egress (GitHub's own source IPs when it connects out):
+            #   hooks                      webhook delivery
+            #   importer / github_enterprise_importer
+            #   actions / actions_macos    runner pools (8000+ Azure IPs)
+            #   codespaces                 dev-container infra
+            # ("dependabot" is no longer present in the API response at all.)
+            for key in ("web", "api", "git", "packages", "pages",
+                        "shared_ingress", "copilot"):
                 for prefix in data.get(key, []):
                     if prefix not in seen:
                         seen.add(prefix)
